@@ -2,21 +2,29 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/net/html"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"golang.org/x/net/html"
 )
 
 func main() {
 	// URL to start crawling
 	url := "https://upload.wikimedia.org/wikipedia/commons/b/b6/Image_created_with_a_mobile_phone.png"
 
-	links, h1Text, err := crawl(url)
+	links, h1Text, errImg, err := crawl(url)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+    errImg = downloadImage(url)
+    if errImg != nil {
+        log.Fatal(errImg)
+    }
+    fmt.Printf("Image downloaded successfully.")
 
 	fmt.Println("Links:")
 	for _, link := range links {
@@ -27,29 +35,30 @@ func main() {
 	fmt.Println(h1Text)
 }
 
-func crawl(url string) ([]string, string, error) {
+func crawl(url string) ([]string, string, error, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	defer resp.Body.Close()
 
-	links, h1Text := extractElements(resp.Body, "a", "h1", "img")
+	links, h1Text, errImg := extractElements(resp.Body, "a", "h1", "img")
 
-	return links, h1Text, nil
+	return links, h1Text, errImg, nil
 }
 
-func extractElements(body io.Reader, tags ...string) ([]string, string) {
+func extractElements(body io.Reader, tags ...string) ([]string, string, error) {
 	tokenizer := html.NewTokenizer(body)
 	links := []string{}
 	var h1Text string
+	var errImg error 
 
 	for {
 		tokenType := tokenizer.Next()
 		switch tokenType {
 		case html.ErrorToken:
 			// End of the document
-			return links, h1Text
+			return links, h1Text, errImg 
 		case html.StartTagToken, html.EndTagToken:
 			token := tokenizer.Token()
 			for _, tag := range tags {
@@ -72,12 +81,12 @@ func extractElements(body io.Reader, tags ...string) ([]string, string) {
 						// Download image
 					} else if tag == "img" {
 						if tokenType == html.StartTagToken {
-							for _, attr := range token.Attr { // This is downloading every img, gonna make proper later but just to see if it downloads correctly
+							for _, attr := range token.Attr {
 								if attr.Key == "src" {
 									imageUrl := strings.TrimSpace(attr.Val)
-									err := downloadImage(imageUrl)
-									if err != nil {
-                                        log.Printf("Error downloading image from %s: %v\n", imageUrl, err)
+									errImg = downloadImage(imageUrl)
+									if errImg != nil {
+                                        log.Printf("Error downloading image from %s: %v\n", imageUrl, errImg)
 									}
 								}
 							}
@@ -88,18 +97,44 @@ func extractElements(body io.Reader, tags ...string) ([]string, string) {
 		}
 	}
 }
-
 func downloadImage(url string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
+    resp, err := http.Get(url)
+    if err != nil {
+        log.Println(err)
+    }
+    defer resp.Body.Close()
 
-	defer resp.Body.Close()
 
-    // This is just printing which one was suppose to be downloaded.
-    // TODO: download the image instead of just printing which one is going to be downloaded
-	log.Printf("Image downloaded from %s\n", url)
+    downloadsDir, err := os.UserHomeDir()
+    if err != nil {
+        return err
+    }
+    downloadsDir = filepath.Join(downloadsDir, "Downloads")
+    // If folder /Downloads doesn't exist, create new folder
+    if _, err := os.Stat(downloadsDir); os.IsNotExist(err) {
+        err := os.Mkdir(downloadsDir, 0750)
+        if err != nil {
+            log.Println(err)
+        }
+    }
 
-	return nil
+    filename := filepath.Base(url)
+    filepath := filepath.Join(downloadsDir, filename)
+
+    file, err := os.Create(filepath)
+
+    if err != nil {
+        log.Println(err)
+    }
+    defer file.Close()
+
+    _, err = io.Copy(file, resp.Body)
+
+    if err != nil {
+        log.Println(err)
+    }
+
+    fmt.Printf("Image downloaded to the %s path.", filepath)
+
+    return nil
 }
