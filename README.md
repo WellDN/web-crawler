@@ -4,7 +4,7 @@
 TODO:
 
 - set User-Agent Header to mimic a real browser
-- Map a web content to another website
+- Copy a web content to another website
 - Implement Robots Exclusion Protocol (read robots.txt)
 
 # Crawling Policy
